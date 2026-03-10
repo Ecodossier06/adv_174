@@ -621,25 +621,34 @@ async function doLogin(){
 }
 async function doLogout(){await sb.auth.signOut();location.reload();}
 
+let appInitialized = false;
+
 sb.auth.onAuthStateChange(async(event,session)=>{
-  if(event==='INITIAL_SESSION' && !session) {
+  // Ignorer les events de refresh token si déjà initialisé
+  if(event==='TOKEN_REFRESHED') return;
+  
+  if(!session){
+    appInitialized = false;
     document.getElementById('login-screen').style.display='flex';
     document.getElementById('app').style.display='none';
     return;
   }
-  if(event==='SIGNED_OUT'){
-    document.getElementById('login-screen').style.display='flex';
-    document.getElementById('app').style.display='none';
-    return;
+  if(session?.user && !appInitialized) {
+    appInitialized = true;
+    await initApp(session.user);
   }
-  if(session?.user) await initApp(session.user);
 });
 
 async function initApp(user){
   currentUser=user;
-  const {data:rd}=await sb.from('user_roles').select('role').eq('user_id',user.id).single();
+  const {data:rd, error:roleErr}=await sb.from('user_roles').select('role').eq('user_id',user.id).single();
   currentRole=rd?.role||null;
-  if(!currentRole){await sb.auth.signOut();document.getElementById('login-err').textContent='Accès non autorisé.';return;}
+  if(!currentRole){
+    appInitialized = false;
+    await sb.auth.signOut();
+    document.getElementById('login-err').textContent='Accès non autorisé.';
+    return;
+  }
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('user-avatar').textContent=user.email.slice(0,2).toUpperCase();
