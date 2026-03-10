@@ -457,7 +457,8 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       <div class="section-card">
         <div class="section-title">➕ Nouvelle secrétaire</div>
         <form onsubmit="event.preventDefault();createSecretaire();" autocomplete="off">
-          <div class="fi-row c2">
+          <div class="fi-row c3">
+            <div class="fi-group"><div class="fi-label">Nom *</div><input class="fi-input" id="sec-nom" placeholder="Marie Dupont"></div>
             <div class="fi-group"><div class="fi-label">Email *</div><input class="fi-input" id="sec-email" placeholder="secretaire@domaine.fr" type="email" autocomplete="new-email"></div>
             <div class="fi-group"><div class="fi-label">Mot de passe *</div><input class="fi-input" id="sec-pwd" placeholder="Minimum 8 caractères" type="password" autocomplete="new-password"></div>
           </div>
@@ -505,7 +506,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       <button class="tab" onclick="switchModalTab('gestion',this)">💼 Gestion</button>
       <button class="tab" onclick="switchModalTab('materiel',this)">🔧 Matériel</button>
       <button class="tab" onclick="switchModalTab('pj',this)">📎 PJ</button>
-      <button class="tab" onclick="switchModalTab('photos',this)">📷 Photos</button>
+      <button class="tab" onclick="switchModalTab('photos',this)">📷 Photos S.Technique</button>
     </div>
 
     <!-- TAB INFOS -->
@@ -518,8 +519,15 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
         <div class="fi-group"><div class="fi-label">Téléphone</div><input class="fi-input" id="md-tel"></div>
         <div class="fi-group"><div class="fi-label">Email</div><input class="fi-input" id="md-email"></div>
       </div>
-      <div class="fi-row">
+      <div class="fi-row c2">
         <div class="fi-group"><div class="fi-label">Adresse</div><input class="fi-input" id="md-adresse"></div>
+        <div class="fi-group"><div class="fi-label">Catégorie</div>
+          <select class="fi-select" id="md-statut-ben">
+            <option value="">—</option>
+            <option value="grand_precaire">Grand Précaire</option>
+            <option value="sci">SCI</option>
+          </select>
+        </div>
       </div>
       <div class="fi-row c3">
         <div class="fi-group"><div class="fi-label">Type logement</div>
@@ -577,19 +585,17 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
           </select>
         </div>
         <div class="fi-group">
-          <div class="fi-label">Secrétaire assignée</div>
+          <div class="fi-label">Assigné à</div>
           <select class="fi-select" id="md-secretaire"><option value="">— Aucune —</option></select>
         </div>
       </div>
-      <div class="fi-row c2">
+      <div class="fi-row c3">
         <div class="fi-group"><div class="fi-label">Date échéance</div><input class="fi-input" id="md-echeance" type="date"></div>
+        <div class="fi-group"><div class="fi-label">Montant prime (€)</div><input class="fi-input" id="md-prime" type="number" step="0.01"></div>
         <div class="fi-group"><div class="fi-label">Reste à charge (€)</div><input class="fi-input" id="md-rac" type="number" step="0.01"></div>
       </div>
       <div class="fi-row">
         <div class="fi-group"><div class="fi-label">Commentaire interne</div><textarea class="fi-textarea" id="md-commentaire"></textarea></div>
-      </div>
-      <div class="fi-row">
-        <div class="fi-group"><div class="fi-label">Commentaire service technique</div><textarea class="fi-textarea" id="md-commentaire-tech" placeholder="Ce commentaire apparaîtra sur la fiche PDF…"></textarea></div>
       </div>
     </div>
 
@@ -607,6 +613,9 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       <div id="md-mat-list"></div>
       <div style="margin-top:16px;">
         <button class="btn btn-primary btn-sm" onclick="saveMaterielDossier()">💾 Sauvegarder le matériel</button>
+      </div>
+      <div class="fi-row" style="margin-top:20px;">
+        <div class="fi-group"><div class="fi-label">Commentaire service technique</div><textarea class="fi-textarea" id="md-commentaire-tech" placeholder="Ce commentaire apparaîtra sur la fiche PDF…"></textarea></div>
       </div>
     </div>
 
@@ -728,7 +737,7 @@ async function loadMateriel(){
   allMateriel=data||[];
 }
 async function loadSecretaires(){
-  const {data}=await sb.from('user_roles').select('user_id,role').eq('role','secretaire');
+  const {data}=await sb.from('user_roles').select('user_id,role,name').in('role',['secretaire','responsable']);
   allSecretaires=data||[];
 }
 
@@ -743,15 +752,18 @@ function populateSelects(){
       o.value=a.code; o.textContent=`${a.code} — ${a.nom}`; sel.appendChild(o);
     });
   });
-  // Secrétaires
+  // Assignation (secrétaires + responsables)
   const secSels=[document.getElementById('nd-secretaire'),document.getElementById('md-secretaire'),document.getElementById('f-secretaire-d')];
   secSels.forEach(sel=>{
     if(!sel) return;
     const isFilter=sel.id==='f-secretaire-d';
-    sel.innerHTML=isFilter?'<option value="">Toutes sécrétaires</option>':'<option value="">— Aucune —</option>';
+    sel.innerHTML=isFilter?'<option value="">Tous assignés</option>':'<option value="">— Aucun(e) —</option>';
     allSecretaires.forEach(s=>{
       const o=document.createElement('option');
-      o.value=s.user_id; o.textContent=s.user_id.slice(0,8)+'…'; sel.appendChild(o);
+      o.value=s.user_id;
+      const roleLbl=s.role==='responsable'?'Resp.':'Secr.';
+      o.textContent=s.name?`${s.name} (${roleLbl})`:s.user_id.slice(0,8)+'…';
+      sel.appendChild(o);
     });
   });
   // Matériel dans modal
@@ -825,11 +837,14 @@ function dossierRow(d, apMap){
   const ech=d.date_echeance?new Date(d.date_echeance).toLocaleDateString('fr-FR'):'—';
   const echClass=echeanceClass(d.date_echeance);
   const ap=d.code_apporteur?(apMap[d.code_apporteur]||d.code_apporteur):'—';
+  const assigned=d.secretaire_id?allSecretaires.find(s=>s.user_id===d.secretaire_id):null;
+  const assignedName=assigned?(assigned.name||'?'):'—';
   return `<tr onclick="openDossier('${d.id}')">
-    <td><div style="font-weight:600;">${d.nom} ${d.prenom}</div><div class="mono">${(d.adresse_client||'').slice(0,25)}</div></td>
+    <td><div style="font-weight:600;">${d.nom} ${d.prenom}</div><div class="mono">${d.adresse_client||'—'}</div></td>
     <td><span class="badge ${d.statut}">${STATUT_BEN[d.statut]||d.statut}</span></td>
     <td><div style="font-size:12px;">${d.tel||'—'}</div></td>
     <td><div class="mono">${ap}</div></td>
+    <td><div style="font-size:12px;">${assignedName}</div></td>
     <td><span class="${echClass}">${ech}</span></td>
     <td><span class="badge ${d.statut_dossier}">${{nouveau:'Nouveau',en_cours:'En cours',valide:'Validé',refuse:'Refusé'}[d.statut_dossier]||d.statut_dossier}</span></td>
     <td class="mono">${date}</td>
@@ -842,7 +857,7 @@ function buildTable(data, containerId){
   const wrap=document.getElementById(containerId);
   if(data.length===0){wrap.innerHTML='<div class="empty"><div class="empty-icon">📭</div>Aucun dossier</div>';return;}
   wrap.innerHTML=`<table>
-    <thead><tr><th>Bénéficiaire</th><th>Statut</th><th>Tél</th><th>Apporteur</th><th>Échéance</th><th>Dossier</th><th>Créé le</th></tr></thead>
+    <thead><tr><th>Bénéficiaire</th><th>Statut</th><th>Tél</th><th>Apporteur</th><th>Assigné à</th><th>Échéance</th><th>Dossier</th><th>Créé le</th></tr></thead>
     <tbody>${data.map(d=>dossierRow(d,apMap)).join('')}</tbody>
   </table>`;
 }
@@ -873,6 +888,10 @@ function renderMesDossiers(){
       if(!b.date_echeance) return -1;
       return new Date(a.date_echeance)-new Date(b.date_echeance);
     });
+  if(mine.length===0){
+    document.getElementById('tw-mes-dossiers').innerHTML='<div class="empty"><div class="empty-icon">📭</div>Aucun dossier assigné</div>';
+    return;
+  }
   buildTable(mine,'tw-mes-dossiers');
 }
 
@@ -892,6 +911,7 @@ async function openDossier(id){
   document.getElementById('md-tel').value=d.tel||'';
   document.getElementById('md-email').value=d.email||'';
   document.getElementById('md-adresse').value=d.adresse_client||'';
+  document.getElementById('md-statut-ben').value=d.statut||'';
   document.getElementById('md-type').value=d.type_logement||'';
   document.getElementById('md-surface').value=d.surface_m2||'';
   document.getElementById('md-chauffage').value=d.type_chauffage||'';
@@ -902,6 +922,7 @@ async function openDossier(id){
   document.getElementById('md-statut').value=d.statut_dossier||'nouveau';
   document.getElementById('md-secretaire').value=d.secretaire_id||'';
   document.getElementById('md-echeance').value=d.date_echeance||'';
+  document.getElementById('md-prime').value=d.montant_prime||'';
   document.getElementById('md-rac').value=d.reste_a_charge||'';
   document.getElementById('md-commentaire').value=d.commentaire||'';
   document.getElementById('md-commentaire-tech').value=d.commentaire_technique||'';
@@ -997,6 +1018,7 @@ async function saveDossier(){
     tel:document.getElementById('md-tel').value.trim(),
     email:document.getElementById('md-email').value.trim(),
     adresse_client:document.getElementById('md-adresse').value.trim(),
+    statut:document.getElementById('md-statut-ben').value||null,
     type_logement:document.getElementById('md-type').value||null,
     surface_m2:parseInt(document.getElementById('md-surface').value)||null,
     type_chauffage:document.getElementById('md-chauffage').value||null,
@@ -1005,6 +1027,7 @@ async function saveDossier(){
     statut_dossier:document.getElementById('md-statut').value,
     secretaire_id:document.getElementById('md-secretaire').value||null,
     date_echeance:document.getElementById('md-echeance').value||null,
+    montant_prime:parseFloat(document.getElementById('md-prime').value)||null,
     reste_a_charge:parseFloat(document.getElementById('md-rac').value)||null,
     commentaire:document.getElementById('md-commentaire').value||null,
     commentaire_technique:document.getElementById('md-commentaire-tech').value||null,
@@ -1289,22 +1312,37 @@ async function editMateriel(id){
 // ── SECRETAIRES ──
 function renderSecretaires(){
   const list=document.getElementById('sec-list');
-  if(allSecretaires.length===0){list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Aucune secrétaire</div>';return;}
-  list.innerHTML=allSecretaires.map(s=>`
+  const secs=allSecretaires.filter(s=>s.role==='secretaire');
+  if(secs.length===0){list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Aucune secrétaire</div>';return;}
+  list.innerHTML=secs.map(s=>`
     <div class="sec-item">
       <div style="display:flex;align-items:center;gap:10px;">
-        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#238636,#3fb950);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;">${s.user_id.slice(0,2).toUpperCase()}</div>
-        <div><div style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace;">${s.user_id.slice(0,16)}…</div><div style="font-size:11px;color:var(--muted);">Secrétaire</div></div>
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#238636,#3fb950);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;">${(s.name||'??').slice(0,2).toUpperCase()}</div>
+        <div><div style="font-size:13px;font-weight:600;">${s.name||'Sans nom'}</div><div style="font-size:11px;color:var(--muted);">Secrétaire</div></div>
       </div>
+      <button class="btn btn-ghost btn-sm" onclick="editStaffName('${s.user_id}')">✏️</button>
     </div>`).join('');
+}
+
+async function editStaffName(userId){
+  const s=allSecretaires.find(x=>x.user_id===userId);
+  if(!s) return;
+  const newName=prompt('Nouveau nom :',s.name||'');
+  if(!newName) return;
+  const {error}=await sb.from('user_roles').update({name:newName}).eq('user_id',userId);
+  if(error){showToast(error.message,true);return;}
+  s.name=newName;
+  renderSecretaires();populateSelects();
+  showToast('Nom modifié ✓');
 }
 
 async function createSecretaire(){
   const email=document.getElementById('sec-email').value.trim();
   const pwd=document.getElementById('sec-pwd').value;
+  const nom=document.getElementById('sec-nom').value.trim();
   const errEl=document.getElementById('e-sec');
   errEl.textContent='';
-  if(!email||!pwd){errEl.textContent='Email et mot de passe requis.';return;}
+  if(!email||!pwd||!nom){errEl.textContent='Nom, email et mot de passe requis.';return;}
   if(pwd.length<8){errEl.textContent='Mot de passe : minimum 8 caractères.';return;}
 
   // Sauvegarder la session actuelle avant signUp
@@ -1327,9 +1365,13 @@ async function createSecretaire(){
   const {error:roleErr}=await sb.rpc('create_secretaire',{p_user_id:data.user.id});
   if(roleErr){errEl.textContent='Compte créé mais erreur rôle: '+roleErr.message;return;}
 
-  allSecretaires.push({user_id:data.user.id,role:'secretaire'});
+  // Stocker le nom
+  await sb.from('user_roles').update({name:nom}).eq('user_id',data.user.id);
+
+  allSecretaires.push({user_id:data.user.id,role:'secretaire',name:nom});
   document.getElementById('sec-email').value='';
   document.getElementById('sec-pwd').value='';
+  document.getElementById('sec-nom').value='';
   populateSelects();
   renderSecretaires();
   showToast('Secrétaire créée ✓');
