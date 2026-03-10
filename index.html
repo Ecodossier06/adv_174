@@ -273,6 +273,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
     <div class="page" id="page-dossiers">
       <div class="page-header">
         <div><div class="page-title">Tous les dossiers</div><div class="page-sub" id="count-dossiers">—</div></div>
+        <button class="btn btn-ghost btn-sm" id="btn-export" style="display:none" onclick="exportCSV()">📥 Exporter CSV</button>
       </div>
       <div class="filters">
         <input class="search-input" type="text" id="search-d" placeholder="🔍 Nom, email, code apporteur…" oninput="filterDossiers()">
@@ -424,6 +425,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       </div>
       <div class="section-card">
         <div class="section-title">Liste</div>
+        <input class="search-input" type="text" id="search-ap" placeholder="🔍 Rechercher…" oninput="renderApporteurs()" style="margin-bottom:12px;width:100%;">
         <div id="ap-list"><div class="loading" style="padding:20px;"><div class="spinner"></div></div></div>
       </div>
     </div>
@@ -447,6 +449,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       </div>
       <div class="section-card">
         <div class="section-title">Catalogue</div>
+        <input class="search-input" type="text" id="search-mat" placeholder="🔍 Rechercher…" oninput="renderMateriel()" style="margin-bottom:12px;width:100%;">
         <div id="mat-list"><div class="loading" style="padding:20px;"><div class="spinner"></div></div></div>
       </div>
     </div>
@@ -471,6 +474,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       </div>
       <div class="section-card">
         <div class="section-title">Comptes secrétaires</div>
+        <input class="search-input" type="text" id="search-sec" placeholder="🔍 Rechercher…" oninput="renderSecretaires()" style="margin-bottom:12px;width:100%;">
         <div id="sec-list"><div class="loading" style="padding:20px;"><div class="spinner"></div></div></div>
       </div>
     </div>
@@ -717,6 +721,7 @@ async function initApp(user){
       const el=document.getElementById(id); if(el) el.style.display='flex';
     });
     document.getElementById('nav-gestion').style.display='block';
+    const btnExp=document.getElementById('btn-export'); if(btnExp) btnExp.style.display='inline-flex';
   }
   await Promise.all([loadDossiers(),loadApporteurs(),loadMateriel(),loadSecretaires()]);
   renderDashboard();
@@ -1121,7 +1126,8 @@ async function loadModalPJ(dossierId){
     return `<div class="pj-item">
       <span style="font-size:16px;margin-right:8px;">📄</span>
       <span style="flex:1;font-size:12.5px;">${pj.nom}</span>
-      <button class="btn-dl" onclick="window.open('${url}','_blank')">⬇ Télécharger</button>
+      <button class="btn-dl" onclick="window.open('${url}','_blank')">⬇ Ouvrir</button>
+      <button class="mat-remove" onclick="deletePJ('${pj.id}','${pj.path}','${dossierId}')" title="Supprimer">✕</button>
     </div>`;
   })).then(items=>items.join(''));
 }
@@ -1194,9 +1200,11 @@ function resetNewDossier(){
 
 // ── APPORTEURS ──
 function renderApporteurs(){
+  const q=(document.getElementById('search-ap')?.value||'').toLowerCase();
   const list=document.getElementById('ap-list');
-  if(allApporteurs.length===0){list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Aucun apporteur</div>';return;}
-  list.innerHTML=allApporteurs.map(a=>`
+  const filtered=allApporteurs.filter(a=>!q||`${a.code} ${a.nom}`.toLowerCase().includes(q));
+  if(filtered.length===0){list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Aucun apporteur</div>';return;}
+  list.innerHTML=filtered.map(a=>`
     <div class="ap-item ${a.actif?'':'inactif'}">
       <div style="display:flex;align-items:center;">
         <span class="ap-code">${a.code}</span>
@@ -1250,9 +1258,11 @@ async function editApporteurNom(id){
 
 // ── MATERIEL ──
 function renderMateriel(){
+  const q=(document.getElementById('search-mat')?.value||'').toLowerCase();
   const list=document.getElementById('mat-list');
-  if(allMateriel.length===0){list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Aucun produit</div>';return;}
-  list.innerHTML=allMateriel.map(m=>`
+  const filtered=allMateriel.filter(m=>!q||`${m.reference} ${m.nom} ${m.categorie||''}`.toLowerCase().includes(q));
+  if(filtered.length===0){list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Aucun produit</div>';return;}
+  list.innerHTML=filtered.map(m=>`
     <div class="mat-item">
       <div style="display:flex;align-items:center;gap:10px;flex:1;">
         <span class="mat-ref">${m.reference}</span>
@@ -1311,8 +1321,9 @@ async function editMateriel(id){
 
 // ── SECRETAIRES ──
 function renderSecretaires(){
+  const q=(document.getElementById('search-sec')?.value||'').toLowerCase();
   const list=document.getElementById('sec-list');
-  const secs=allSecretaires.filter(s=>s.role==='secretaire');
+  const secs=allSecretaires.filter(s=>s.role==='secretaire'&&(!q||`${s.name||''}`.toLowerCase().includes(q)));
   if(secs.length===0){list.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Aucune secrétaire</div>';return;}
   list.innerHTML=secs.map(s=>`
     <div class="sec-item">
@@ -1441,140 +1452,120 @@ function updateStatutSelects(){
   });
 }
 
+async function deletePJ(id,path,dossierId){
+  if(!confirm('Supprimer cette pièce jointe ?')) return;
+  await sb.storage.from('storage').remove([path]);
+  await sb.from('dossier_pj').delete().eq('id',id);
+  await loadModalPJ(dossierId);
+  showToast('PJ supprimée ✓');
+}
+
+// ── EXPORT CSV ──
+function exportCSV(){
+  const headers=['Nom','Prénom','Statut','Téléphone','Email','Adresse','Type logement','Surface m²','Chauffage','Geste 1','Geste 2','Code apporteur','Statut dossier','Échéance','Prime €','RAC €','Créé le'];
+  const rows=allDossiers.map(d=>[
+    d.nom,d.prenom,STATUT_BEN[d.statut]||d.statut,d.tel,d.email,d.adresse_client,
+    d.type_logement,d.surface_m2,d.type_chauffage,
+    GESTE_LABELS[d.geste_1]||d.geste_1,GESTE_LABELS[d.geste_2]||d.geste_2,
+    d.code_apporteur,d.statut_dossier,d.date_echeance||'',d.montant_prime||'',d.reste_a_charge||'',
+    d.created_at?new Date(d.created_at).toLocaleDateString('fr-FR'):''
+  ]);
+  const esc=v=>`"${String(v||'').replace(/"/g,'""')}"`;
+  const csv='\uFEFF'+[headers.map(esc).join(';'),...rows.map(r=>r.map(esc).join(';'))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`dossiers_174_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();URL.revokeObjectURL(url);
+  showToast('Export CSV téléchargé ✓');
+}
+
 // ── PDF FICHE PROGRAMMATION ──
 async function generatePDF(){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF();
   const d=currentDossier; if(!d) return;
+  const green=[26,92,53], gL=[45,138,82], gr=[125,133,144], dk=[30,36,42];
 
-  // En-tête
-  doc.setFillColor(26,92,53);
-  doc.rect(0,0,210,28,'F');
+  // Header moderne
+  doc.setFillColor(...green);doc.roundedRect(0,0,210,32,0,0,'F');
+  doc.setFillColor(...gL);doc.roundedRect(140,5,62,9,4,4,'F');
   doc.setTextColor(255,255,255);
-  doc.setFontSize(16);doc.setFont('helvetica','bold');
-  doc.text('FICHE DE PROGRAMMATION',14,12);
-  doc.setFontSize(9);doc.setFont('helvetica','normal');
-  doc.text('BAR-TH-174 · Rénovation d\'Ampleur CEE',14,19);
-  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`,150,19);
+  doc.setFontSize(18);doc.setFont('helvetica','bold');doc.text('FICHE DE PROGRAMMATION',14,14);
+  doc.setFontSize(8);doc.setFont('helvetica','normal');
+  doc.text('BAR-TH-174 · Rénovation d\'Ampleur CEE',14,22);
+  doc.text(new Date().toLocaleDateString('fr-FR'),152,12);
+  doc.text('Apporteur : '+(d.code_apporteur||'\u2014'),14,28);
 
-  // Infos client
-  doc.setTextColor(0,0,0);
-  doc.setFontSize(11);doc.setFont('helvetica','bold');
-  doc.text('BÉNÉFICIAIRE',14,36);
-  doc.setDrawColor(45,138,82);doc.setLineWidth(0.5);doc.line(14,38,80,38);
+  let y=42;
+  function sec(t,yy){doc.setFillColor(245,247,250);doc.roundedRect(12,yy-5,186,8,3,3,'F');doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(...dk);doc.text(t.toUpperCase(),16,yy);return yy+10;}
+  function rw(l,v,yy){doc.setFontSize(8.5);doc.setFont('helvetica','bold');doc.setTextColor(...gr);doc.text(l,16,yy);doc.setFont('helvetica','normal');doc.setTextColor(...dk);doc.text(String(v||'\u2014'),68,yy);return yy+5.5;}
 
-  doc.setFontSize(9);doc.setFont('helvetica','normal');
-  const rows=[
-    ['Nom / Prénom',`${d.nom} ${d.prenom}`],
-    ['Statut',STATUT_BEN[d.statut]||d.statut],
-    ['Téléphone',d.tel||'—'],
-    ['Email',d.email||'—'],
-    ['Adresse',d.adresse_client||'—'],
-    ['Type logement',d.type_logement||'—'],
-    ['Surface',d.surface_m2?`${d.surface_m2} m²`:'—'],
-    ['Chauffage',d.type_chauffage||'—'],
-  ];
-  let y=44;
-  rows.forEach(([lbl,val])=>{
-    doc.setFont('helvetica','bold');doc.text(lbl+' :',14,y);
-    doc.setFont('helvetica','normal');doc.text(String(val),65,y);
-    y+=6;
-  });
+  y=sec('Bénéficiaire',y);
+  y=rw('Nom / Prénom',d.nom+' '+d.prenom,y);
+  y=rw('Catégorie',STATUT_BEN[d.statut]||d.statut,y);
+  y=rw('Téléphone',d.tel,y);
+  y=rw('Email',d.email,y);
+  y=rw('Adresse',d.adresse_client,y);
+  y+=3;
 
-  // Gestes
-  y+=4;
-  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('GESTES D\'ISOLATION',14,y);
-  doc.line(14,y+2,90,y+2);y+=8;
-  doc.setFontSize(9);doc.setFont('helvetica','normal');
-  if(d.geste_1) doc.text(`• ${GESTE_LABELS[d.geste_1]||d.geste_1}`,14,y),y+=6;
-  if(d.geste_2) doc.text(`• ${GESTE_LABELS[d.geste_2]||d.geste_2}`,14,y),y+=6;
+  y=sec('Logement',y);
+  y=rw('Type',d.type_logement,y);
+  y=rw('Surface',d.surface_m2?d.surface_m2+' m\u00B2':null,y);
+  y=rw('Chauffage',d.type_chauffage,y);
+  y+=3;
 
-  // Matériel
-  y+=4;
-  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('MATÉRIEL À INSTALLER',14,y);
-  doc.line(14,y+2,100,y+2);y+=8;
+  y=sec('Gestes d\'isolation',y);
+  if(d.geste_1) y=rw('Geste 1',GESTE_LABELS[d.geste_1]||d.geste_1,y);
+  if(d.geste_2) y=rw('Geste 2',GESTE_LABELS[d.geste_2]||d.geste_2,y);
+  y+=3;
+
+  y=sec('Matériel à installer',y);
   if(modalMateriels.length===0){
-    doc.setFontSize(9);doc.setFont('helvetica','normal');doc.text('Aucun matériel renseigné',14,y);y+=6;
+    doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(...gr);doc.text('Aucun matériel renseigné',16,y);y+=6;
   } else {
-    doc.setFillColor(33,38,45);doc.rect(14,y-4,182,7,'F');
-    doc.setTextColor(125,133,144);doc.setFontSize(8);
-    doc.text('Référence',16,y);doc.text('Désignation',50,y);doc.text('Qté',180,y);
-    doc.setTextColor(0,0,0);y+=4;
+    doc.setFillColor(240,242,245);doc.roundedRect(14,y-4,182,7,2,2,'F');
+    doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(...gr);
+    doc.text('RÉFÉRENCE',16,y);doc.text('DÉSIGNATION',55,y);doc.text('QTÉ',180,y);y+=5;
+    doc.setTextColor(...dk);
     modalMateriels.forEach((m,i)=>{
-      if(i%2===0){doc.setFillColor(245,245,245);doc.rect(14,y-3,182,6,'F');}
+      if(i%2===0){doc.setFillColor(250,251,253);doc.rect(14,y-3.5,182,6,'F');}
       doc.setFontSize(8);doc.setFont('helvetica','normal');
-      doc.text(m.ref||'',16,y);
-      doc.text(m.nom||'',50,y);
-      doc.text(String(m.quantite),182,y);
-      y+=6;
+      doc.text(m.ref||'',16,y);doc.text(m.nom||'',55,y);doc.text(String(m.quantite),182,y);y+=6;
     });
   }
+  y+=3;
 
-  // Gestion
-  y+=6;
-  doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('GESTION',14,y);
-  doc.line(14,y+2,50,y+2);y+=8;
-  doc.setFontSize(9);doc.setFont('helvetica','normal');
-  const gRows=[
-    ['Statut',{nouveau:'Nouveau',en_cours:'En cours',valide:'Validé',refuse:'Refusé'}[d.statut_dossier]||'—'],
-    ['Échéance',d.date_echeance?new Date(d.date_echeance).toLocaleDateString('fr-FR'):'—'],
-    ['Reste à charge',d.reste_a_charge?`${d.reste_a_charge} €`:'—'],
-  ];
-  gRows.forEach(([lbl,val])=>{
-    doc.setFont('helvetica','bold');doc.text(lbl+' :',14,y);
-    doc.setFont('helvetica','normal');doc.text(String(val),65,y);
-    y+=6;
-  });
+  if(d.reste_a_charge){y=sec('Financier',y);y=rw('Reste à charge',d.reste_a_charge+' \u20AC',y);y+=3;}
 
-  // Commentaire service technique
   if(d.commentaire_technique){
-    y+=4;
-    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('SERVICE TECHNIQUE',14,y);
-    doc.line(14,y+2,80,y+2);y+=8;
-    doc.setFontSize(9);doc.setFont('helvetica','normal');
-    const lines=doc.splitTextToSize(d.commentaire_technique,182);
-    doc.text(lines,14,y);y+=lines.length*5;
+    y=sec('Service technique',y);
+    doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(...dk);
+    const li=doc.splitTextToSize(d.commentaire_technique,178);doc.text(li,16,y);y+=li.length*4.5;y+=3;
   }
 
-  // Photos avec commentaires
   if(modalPhotos.length>0){
+    if(y>180){doc.addPage();y=20;}
+    y=sec('Photos',y);
     for(const ph of modalPhotos){
-      // Nouvelle page si pas assez de place
-      if(y>200){doc.addPage();y=20;}
-      y+=4;
+      if(y>210){doc.addPage();y=20;}
       const {data:su}=await sb.storage.from('storage').createSignedUrl(ph.path,60);
       if(su?.signedUrl){
         try{
-          const resp=await fetch(su.signedUrl);
-          const blob=await resp.blob();
+          const resp=await fetch(su.signedUrl);const blob=await resp.blob();
           const dataUrl=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(blob);});
-          const ext=ph.path.split('.').pop().toLowerCase();
-          const fmt=ext==='png'?'PNG':'JPEG';
-          doc.addImage(dataUrl,fmt,14,y,60,45);
-          if(ph.commentaire){
-            doc.setFontSize(8);doc.setFont('helvetica','normal');
-            const cLines=doc.splitTextToSize(ph.commentaire,110);
-            doc.text(cLines,80,y+6);
-          }
-          y+=50;
-        }catch(e){
-          doc.setFontSize(8);doc.text(`[Photo: ${ph.commentaire||'sans commentaire'}]`,14,y);y+=6;
-        }
+          const fmt=ph.path.split('.').pop().toLowerCase()==='png'?'PNG':'JPEG';
+          if(ph.commentaire){doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(...dk);doc.text(ph.commentaire,16,y);y+=5;}
+          doc.addImage(dataUrl,fmt,16,y,55,42);y+=47;
+        }catch(e){doc.setFontSize(8);doc.setTextColor(...gr);doc.text('[Photo: '+(ph.commentaire||'sans commentaire')+']',16,y);y+=6;}
       }
     }
   }
 
-  // Footer
-  const pageCount=doc.internal.getNumberOfPages();
-  for(let p=1;p<=pageCount;p++){
-    doc.setPage(p);
-    doc.setFillColor(26,92,53);doc.rect(0,285,210,12,'F');
-    doc.setTextColor(255,255,255);doc.setFontSize(8);
-    doc.text('BAR-TH-174 · Certificats d\'Économies d\'Énergie',14,293);
-    doc.text(`Apporteur : ${d.code_apporteur||'—'}`,150,293);
-  }
+  const pc=doc.internal.getNumberOfPages();
+  for(let p=1;p<=pc;p++){doc.setPage(p);doc.setDrawColor(230,233,236);doc.line(14,284,196,284);doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(...gr);doc.text('BAR-TH-174 \u00B7 Certificats d\u2019\u00C9conomies d\u2019\u00C9nergie',14,290);doc.text('Page '+p+'/'+pc,185,290);}
 
-  doc.save(`fiche_${d.nom}_${d.prenom}_${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save('fiche_'+d.nom+'_'+d.prenom+'_'+new Date().toISOString().slice(0,10)+'.pdf');
 }
 
 // ── TOAST ──
