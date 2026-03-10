@@ -646,7 +646,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
 
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeDossierModal()">Fermer</button>
-      <button class="btn btn-ghost btn-sm" onclick="generatePDF()" title="Fiche de programmation PDF">🖨️ PDF</button>
+      <button class="btn btn-ghost btn-sm" onclick="generatePDF()" title="Fiche matériel PDF">🖨️ Fiche matériel</button>
       <button class="btn btn-primary" onclick="saveDossier()">💾 Enregistrer</button>
     </div>
   </div>
@@ -1308,13 +1308,17 @@ async function toggleMateriel(id,actif){
 async function editMateriel(id){
   const mat=allMateriel.find(m=>m.id===id);
   if(!mat) return;
+  const newRef=prompt('Référence :',mat.reference);
+  if(!newRef) return;
   const newNom=prompt('Nom :',mat.nom);
   if(!newNom) return;
+  const newCat=prompt('Catégorie :',mat.categorie||'');
   const newDesc=prompt('Description :',mat.description||'');
   const newTech=prompt('Infos techniques :',mat.infos_tech||'');
-  const {error}=await sb.from('materiel').update({nom:newNom,description:newDesc||null,infos_tech:newTech||null}).eq('id',id);
+  const upd={reference:newRef.trim(),nom:newNom.trim(),categorie:newCat||null,description:newDesc||null,infos_tech:newTech||null};
+  const {error}=await sb.from('materiel').update(upd).eq('id',id);
   if(error){showToast(error.message,true);return;}
-  Object.assign(mat,{nom:newNom,description:newDesc||null,infos_tech:newTech||null});
+  Object.assign(mat,upd);
   renderMateriel();populateSelects();
   showToast('Produit modifié ✓');
 }
@@ -1403,13 +1407,30 @@ function renderStatuts(){
   if(!list) return;
   list.innerHTML=customStatuts.map((s,i)=>`
     <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg3);border-radius:9px;border:1px solid var(--border);margin-bottom:8px;">
-      <div style="width:14px;height:14px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
+      <input type="color" value="${s.color}" style="width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0;" onchange="editStatutColor(${i},this.value)">
       <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);min-width:120px;">${s.key}</span>
       <span style="font-size:13px;font-weight:600;flex:1;">${s.label}</span>
       <span class="badge" style="background:${s.color}22;color:${s.color};">${s.label}</span>
-      ${i>=4?`<button class="btn btn-danger btn-sm" onclick="removeStatut(${i})">✕</button>`:'<span style="font-size:11px;color:var(--muted);">défaut</span>'}
+      <button class="btn btn-ghost btn-sm" onclick="editStatut(${i})">✏️</button>
+      ${i>=4?`<button class="btn btn-danger btn-sm" onclick="removeStatut(${i})">✕</button>`:''}
     </div>`).join('');
   updateStatutSelects();
+}
+
+function editStatut(i){
+  const s=customStatuts[i];
+  const newKey=prompt('Clé :',s.key);
+  if(!newKey) return;
+  const newLabel=prompt('Label :',s.label);
+  if(!newLabel) return;
+  customStatuts[i]={...s, key:newKey.trim().toLowerCase().replace(/\s+/g,'_'), label:newLabel.trim()};
+  saveStatuts();renderStatuts();
+  showToast('Statut modifié ✓');
+}
+
+function editStatutColor(i,color){
+  customStatuts[i].color=color;
+  saveStatuts();renderStatuts();
 }
 
 function addStatut(){
@@ -1485,87 +1506,176 @@ async function generatePDF(){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF();
   const d=currentDossier; if(!d) return;
-  const green=[26,92,53], gL=[45,138,82], gr=[125,133,144], dk=[30,36,42];
 
-  // Header moderne
-  doc.setFillColor(...green);doc.roundedRect(0,0,210,32,0,0,'F');
-  doc.setFillColor(...gL);doc.roundedRect(140,5,62,9,4,4,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(18);doc.setFont('helvetica','bold');doc.text('FICHE DE PROGRAMMATION',14,14);
+  // Couleurs
+  const C={
+    primary:[26,92,53], accent:[45,138,82],
+    dark:[25,30,36], text:[50,55,65], muted:[140,148,160],
+    light:[245,247,250], white:[255,255,255], line:[220,225,232]
+  };
+
+  // ── HEADER : bande verte pleine, propre ──
+  doc.setFillColor(...C.primary);
+  doc.rect(0,0,210,26,'F');
+  // Ligne accent en bas du header
+  doc.setFillColor(...C.accent);
+  doc.rect(0,26,210,1.5,'F');
+
+  doc.setTextColor(...C.white);
+  doc.setFontSize(16);doc.setFont('helvetica','bold');
+  doc.text('FICHE MAT\u00C9RIEL',14,11);
   doc.setFontSize(8);doc.setFont('helvetica','normal');
-  doc.text('BAR-TH-174 · Rénovation d\'Ampleur CEE',14,22);
-  doc.text(new Date().toLocaleDateString('fr-FR'),152,12);
-  doc.text('Apporteur : '+(d.code_apporteur||'\u2014'),14,28);
+  doc.text('BAR-TH-174  \u00B7  R\u00E9novation d\'Ampleur CEE',14,17.5);
 
-  let y=42;
-  function sec(t,yy){doc.setFillColor(245,247,250);doc.roundedRect(12,yy-5,186,8,3,3,'F');doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(...dk);doc.text(t.toUpperCase(),16,yy);return yy+10;}
-  function rw(l,v,yy){doc.setFontSize(8.5);doc.setFont('helvetica','bold');doc.setTextColor(...gr);doc.text(l,16,yy);doc.setFont('helvetica','normal');doc.setTextColor(...dk);doc.text(String(v||'\u2014'),68,yy);return yy+5.5;}
+  // Date + apporteur alignés à droite
+  doc.setFontSize(7.5);
+  doc.text(new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'}),196,11,{align:'right'});
+  doc.text('Apporteur : '+(d.code_apporteur||'\u2014'),196,17.5,{align:'right'});
 
-  y=sec('Bénéficiaire',y);
-  y=rw('Nom / Prénom',d.nom+' '+d.prenom,y);
-  y=rw('Catégorie',STATUT_BEN[d.statut]||d.statut,y);
-  y=rw('Téléphone',d.tel,y);
-  y=rw('Email',d.email,y);
-  y=rw('Adresse',d.adresse_client,y);
-  y+=3;
+  let y=36;
+  const pageW=210, marginL=14, marginR=196, contentW=pageW-28;
 
-  y=sec('Logement',y);
-  y=rw('Type',d.type_logement,y);
-  y=rw('Surface',d.surface_m2?d.surface_m2+' m\u00B2':null,y);
-  y=rw('Chauffage',d.type_chauffage,y);
-  y+=3;
+  // ── HELPERS ──
+  function checkPage(need){if(y+need>275){doc.addPage();y=20;}}
 
-  y=sec('Gestes d\'isolation',y);
-  if(d.geste_1) y=rw('Geste 1',GESTE_LABELS[d.geste_1]||d.geste_1,y);
-  if(d.geste_2) y=rw('Geste 2',GESTE_LABELS[d.geste_2]||d.geste_2,y);
-  y+=3;
+  function sectionTitle(title){
+    checkPage(14);
+    doc.setDrawColor(...C.accent);doc.setLineWidth(0.6);
+    doc.line(marginL,y,marginL+18,y);
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(...C.primary);
+    doc.text(title.toUpperCase(),marginL+22,y+0.5);
+    doc.setDrawColor(...C.line);doc.setLineWidth(0.2);
+    doc.line(marginL+22+doc.getTextWidth(title.toUpperCase())+4,y,marginR,y);
+    y+=8;
+  }
 
-  y=sec('Matériel à installer',y);
+  function field(label,value){
+    doc.setFontSize(8);
+    doc.setFont('helvetica','normal');doc.setTextColor(...C.muted);
+    doc.text(label,marginL+2,y);
+    doc.setFont('helvetica','normal');doc.setTextColor(...C.dark);
+    doc.text(String(value||'\u2014'),70,y);
+    y+=5;
+  }
+
+  function spacer(h){y+=h||4;}
+
+  // ── BÉNÉFICIAIRE ──
+  sectionTitle('B\u00E9n\u00E9ficiaire');
+  field('Nom / Pr\u00E9nom',d.nom+' '+d.prenom);
+  field('Cat\u00E9gorie',STATUT_BEN[d.statut]||d.statut);
+  field('T\u00E9l\u00E9phone',d.tel);
+  field('Email',d.email);
+  field('Adresse',d.adresse_client);
+  spacer();
+
+  // ── LOGEMENT ──
+  sectionTitle('Logement');
+  field('Type',d.type_logement);
+  field('Surface',d.surface_m2?d.surface_m2+' m\u00B2':null);
+  field('Chauffage',d.type_chauffage);
+  spacer();
+
+  // ── GESTES ──
+  sectionTitle('Gestes d\'isolation');
+  if(d.geste_1) field('Geste 1',GESTE_LABELS[d.geste_1]||d.geste_1);
+  if(d.geste_2) field('Geste 2',GESTE_LABELS[d.geste_2]||d.geste_2);
+  spacer();
+
+  // ── MATÉRIEL ──
+  sectionTitle('Mat\u00E9riel \u00E0 installer');
   if(modalMateriels.length===0){
-    doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(...gr);doc.text('Aucun matériel renseigné',16,y);y+=6;
+    doc.setFontSize(8);doc.setFont('helvetica','italic');doc.setTextColor(...C.muted);
+    doc.text('Aucun mat\u00E9riel renseign\u00E9',marginL+2,y);y+=6;
   } else {
-    doc.setFillColor(240,242,245);doc.roundedRect(14,y-4,182,7,2,2,'F');
-    doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(...gr);
-    doc.text('RÉFÉRENCE',16,y);doc.text('DÉSIGNATION',55,y);doc.text('QTÉ',180,y);y+=5;
-    doc.setTextColor(...dk);
+    // Entête tableau
+    doc.setFillColor(...C.light);
+    doc.rect(marginL,y-3.5,contentW,6.5,'F');
+    doc.setDrawColor(...C.line);doc.setLineWidth(0.15);
+    doc.line(marginL,y+3,marginR,y+3);
+    doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(...C.muted);
+    doc.text('R\u00C9F\u00C9RENCE',marginL+2,y);
+    doc.text('D\u00C9SIGNATION',marginL+42,y);
+    doc.text('QT\u00C9',marginR-8,y);
+    y+=6;
+    // Lignes
     modalMateriels.forEach((m,i)=>{
-      if(i%2===0){doc.setFillColor(250,251,253);doc.rect(14,y-3.5,182,6,'F');}
-      doc.setFontSize(8);doc.setFont('helvetica','normal');
-      doc.text(m.ref||'',16,y);doc.text(m.nom||'',55,y);doc.text(String(m.quantite),182,y);y+=6;
+      checkPage(7);
+      if(i%2===1){doc.setFillColor(250,251,253);doc.rect(marginL,y-3.5,contentW,6,'F');}
+      doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(...C.dark);
+      doc.text(m.ref||'',marginL+2,y);
+      doc.text(m.nom||'',marginL+42,y);
+      doc.text(String(m.quantite),marginR-6,y);
+      y+=5.5;
     });
+    // Ligne de fermeture
+    doc.setDrawColor(...C.line);doc.line(marginL,y-2,marginR,y-2);
   }
-  y+=3;
+  spacer();
 
-  if(d.reste_a_charge){y=sec('Financier',y);y=rw('Reste à charge',d.reste_a_charge+' \u20AC',y);y+=3;}
+  // ── FINANCIER ──
+  if(d.reste_a_charge){
+    sectionTitle('Financier');
+    field('Reste \u00E0 charge',d.reste_a_charge+' \u20AC');
+    spacer();
+  }
 
+  // ── SERVICE TECHNIQUE ──
   if(d.commentaire_technique){
-    y=sec('Service technique',y);
-    doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(...dk);
-    const li=doc.splitTextToSize(d.commentaire_technique,178);doc.text(li,16,y);y+=li.length*4.5;y+=3;
+    sectionTitle('Service technique');
+    doc.setFontSize(8);doc.setFont('helvetica','normal');doc.setTextColor(...C.text);
+    const lines=doc.splitTextToSize(d.commentaire_technique,contentW-4);
+    checkPage(lines.length*4.2+4);
+    doc.text(lines,marginL+2,y);
+    y+=lines.length*4.2;
+    spacer();
   }
 
+  // ── PHOTOS ──
   if(modalPhotos.length>0){
-    if(y>180){doc.addPage();y=20;}
-    y=sec('Photos',y);
+    checkPage(30);
+    sectionTitle('Photos');
     for(const ph of modalPhotos){
-      if(y>210){doc.addPage();y=20;}
+      checkPage(55);
       const {data:su}=await sb.storage.from('storage').createSignedUrl(ph.path,60);
       if(su?.signedUrl){
         try{
-          const resp=await fetch(su.signedUrl);const blob=await resp.blob();
+          const resp=await fetch(su.signedUrl);
+          const blob=await resp.blob();
           const dataUrl=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(blob);});
           const fmt=ph.path.split('.').pop().toLowerCase()==='png'?'PNG':'JPEG';
-          if(ph.commentaire){doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(...dk);doc.text(ph.commentaire,16,y);y+=5;}
-          doc.addImage(dataUrl,fmt,16,y,55,42);y+=47;
-        }catch(e){doc.setFontSize(8);doc.setTextColor(...gr);doc.text('[Photo: '+(ph.commentaire||'sans commentaire')+']',16,y);y+=6;}
+          // Commentaire au-dessus
+          if(ph.commentaire){
+            doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(...C.dark);
+            doc.text(ph.commentaire,marginL+2,y);y+=4.5;
+          }
+          // Cadre photo
+          doc.setDrawColor(...C.line);doc.setLineWidth(0.3);
+          doc.rect(marginL+1,y-0.5,52,40);
+          doc.addImage(dataUrl,fmt,marginL+1.5,y,51,39);
+          y+=44;
+        }catch(e){
+          doc.setFontSize(7.5);doc.setTextColor(...C.muted);
+          doc.text('[Photo: '+(ph.commentaire||'')+']',marginL+2,y);y+=6;
+        }
       }
     }
   }
 
+  // ── FOOTER sur toutes les pages ──
   const pc=doc.internal.getNumberOfPages();
-  for(let p=1;p<=pc;p++){doc.setPage(p);doc.setDrawColor(230,233,236);doc.line(14,284,196,284);doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(...gr);doc.text('BAR-TH-174 \u00B7 Certificats d\u2019\u00C9conomies d\u2019\u00C9nergie',14,290);doc.text('Page '+p+'/'+pc,185,290);}
+  for(let p=1;p<=pc;p++){
+    doc.setPage(p);
+    // Ligne fine
+    doc.setDrawColor(...C.line);doc.setLineWidth(0.2);
+    doc.line(marginL,285,marginR,285);
+    // Texte footer
+    doc.setFontSize(6.5);doc.setFont('helvetica','normal');doc.setTextColor(...C.muted);
+    doc.text('BAR-TH-174  \u00B7  Certificats d\u2019\u00C9conomies d\u2019\u00C9nergie  \u00B7  '+d.nom+' '+d.prenom,marginL,290);
+    doc.text(p+' / '+pc,marginR,290,{align:'right'});
+  }
 
-  doc.save('fiche_'+d.nom+'_'+d.prenom+'_'+new Date().toISOString().slice(0,10)+'.pdf');
+  doc.save('fiche_materiel_'+d.nom+'_'+d.prenom+'_'+new Date().toISOString().slice(0,10)+'.pdf');
 }
 
 // ── TOAST ──
