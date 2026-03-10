@@ -241,6 +241,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       <button class="nav-item" id="nav-apporteurs" style="display:none" onclick="showPage('apporteurs',this)"><span class="nav-icon">🤝</span>Apporteurs</button>
       <button class="nav-item" id="nav-materiel" style="display:none" onclick="showPage('materiel',this)"><span class="nav-icon">🔧</span>Matériel</button>
       <button class="nav-item" id="nav-secretaires" style="display:none" onclick="showPage('secretaires',this)"><span class="nav-icon">👥</span>Secrétaires</button>
+      <button class="nav-item" id="nav-statuts" style="display:none" onclick="showPage('statuts',this)"><span class="nav-icon">🏷️</span>Statuts</button>
     </nav>
     <div class="sidebar-footer">
       <div class="user-info">
@@ -473,6 +474,21 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       </div>
     </div>
 
+    <!-- STATUTS -->
+    <div class="page" id="page-statuts">
+      <div class="page-header"><div><div class="page-title">Statuts dossier</div><div class="page-sub">Gérer les statuts disponibles</div></div></div>
+      <div class="section-card">
+        <div class="section-title">Statuts actuels</div>
+        <div id="statuts-list"></div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+          <input class="fi-input" id="new-statut-key" placeholder="cle_statut (ex: en_attente)" style="width:200px;">
+          <input class="fi-input" id="new-statut-label" placeholder="Label affiché (ex: En attente)" style="width:200px;">
+          <input class="fi-input" id="new-statut-color" type="color" value="#58a6ff" style="width:50px;padding:4px;">
+          <button class="btn btn-primary btn-sm" onclick="addStatut()">➕ Ajouter</button>
+        </div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -626,8 +642,17 @@ async function doLogin(){
 async function doLogout(){await sb.auth.signOut();location.reload();}
 
 sb.auth.onAuthStateChange(async(event,session)=>{
+  if(event==='INITIAL_SESSION' && !session) {
+    document.getElementById('login-screen').style.display='flex';
+    document.getElementById('app').style.display='none';
+    return;
+  }
+  if(event==='SIGNED_OUT'){
+    document.getElementById('login-screen').style.display='flex';
+    document.getElementById('app').style.display='none';
+    return;
+  }
   if(session?.user) await initApp(session.user);
-  else{document.getElementById('login-screen').style.display='flex';document.getElementById('app').style.display='none';}
 });
 
 async function initApp(user){
@@ -642,7 +667,7 @@ async function initApp(user){
   document.getElementById('user-role-lbl').textContent=ROLE_LABELS[currentRole]||currentRole;
   document.getElementById('dash-date').textContent=new Date().toLocaleDateString('fr-FR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   if(currentRole==='admin'||currentRole==='responsable'){
-    ['nav-apporteurs','nav-materiel','nav-secretaires','nav-gestion'].forEach(id=>{
+    ['nav-apporteurs','nav-materiel','nav-secretaires','nav-statuts','nav-gestion'].forEach(id=>{
       const el=document.getElementById(id); if(el) el.style.display='flex';
     });
     document.getElementById('nav-gestion').style.display='block';
@@ -701,6 +726,7 @@ function populateSelects(){
       o.value=m.id; o.textContent=`${m.reference} — ${m.nom}`; matSel.appendChild(o);
     });
   }
+  updateStatutSelects();
 }
 
 // ── DASHBOARD ──
@@ -744,6 +770,7 @@ function showPage(name,el){
   if(name==='apporteurs') renderApporteurs();
   if(name==='materiel') renderMateriel();
   if(name==='secretaires') renderSecretaires();
+  if(name==='statuts') renderStatuts();
 }
 
 // ── TABLE DOSSIERS ──
@@ -1137,22 +1164,96 @@ async function createSecretaire(){
   if(!email||!pwd){errEl.textContent='Email et mot de passe requis.';return;}
   if(pwd.length<8){errEl.textContent='Mot de passe : minimum 8 caractères.';return;}
 
-  // Créer via Admin API n'est pas dispo côté client — on utilise signUp
-  const {data,error}=await sb.auth.admin?.createUser({email,password:pwd,email_confirm:true})
-    .catch(()=>({data:null,error:{message:'Admin API non disponible'}}));
+  // Sauvegarder la session actuelle avant signUp
+  const {data:currentSession}=await sb.auth.getSession();
 
-  if(error||!data?.user){
-    errEl.textContent='Impossible de créer via API admin. Créez le compte dans Supabase Dashboard → Authentication → Users, puis assignez le rôle avec le SQL suivant :';
-    errEl.innerHTML+=`<br><code style="font-size:10px;color:var(--blue);">INSERT INTO user_roles(user_id,role) VALUES('UUID','secretaire');</code>`;
-    return;
+  // signUp crée le compte (déconnecte l'admin temporairement)
+  const {data,error}=await sb.auth.signUp({email,password:pwd});
+  if(error){errEl.textContent=error.message;return;}
+  if(!data?.user){errEl.textContent='Erreur lors de la création.';return;}
+
+  // Restaurer la session admin
+  if(currentSession?.session){
+    await sb.auth.setSession({
+      access_token:currentSession.session.access_token,
+      refresh_token:currentSession.session.refresh_token
+    });
   }
-  await sb.from('user_roles').insert({user_id:data.user.id,role:'secretaire'});
+
+  // Assigner le rôle secrétaire
+  const {error:roleErr}=await sb.from('user_roles').insert({user_id:data.user.id,role:'secretaire'});
+  if(roleErr){errEl.textContent='Compte créé mais erreur rôle: '+roleErr.message;return;}
+
   allSecretaires.push({user_id:data.user.id,role:'secretaire'});
   document.getElementById('sec-email').value='';
   document.getElementById('sec-pwd').value='';
   populateSelects();
   renderSecretaires();
   showToast('Secrétaire créée ✓');
+}
+
+// ── STATUTS DOSSIER ──
+let customStatuts = JSON.parse(localStorage.getItem('bar174-statuts') || 'null') || [
+  {key:'nouveau', label:'Nouveau', color:'#58a6ff'},
+  {key:'en_cours', label:'En cours', color:'#d29922'},
+  {key:'valide', label:'Validé', color:'#3fb950'},
+  {key:'refuse', label:'Refusé', color:'#f85149'}
+];
+
+function saveStatuts(){ try{localStorage.setItem('bar174-statuts',JSON.stringify(customStatuts));}catch(e){} }
+
+function renderStatuts(){
+  const list=document.getElementById('statuts-list');
+  if(!list) return;
+  list.innerHTML=customStatuts.map((s,i)=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg3);border-radius:9px;border:1px solid var(--border);margin-bottom:8px;">
+      <div style="width:14px;height:14px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
+      <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);min-width:120px;">${s.key}</span>
+      <span style="font-size:13px;font-weight:600;flex:1;">${s.label}</span>
+      <span class="badge" style="background:${s.color}22;color:${s.color};">${s.label}</span>
+      ${i>=4?`<button class="btn btn-danger btn-sm" onclick="removeStatut(${i})">✕</button>`:'<span style="font-size:11px;color:var(--muted);">défaut</span>'}
+    </div>`).join('');
+  updateStatutSelects();
+}
+
+function addStatut(){
+  const key=document.getElementById('new-statut-key').value.trim().toLowerCase().replace(/\s+/g,'_');
+  const label=document.getElementById('new-statut-label').value.trim();
+  const color=document.getElementById('new-statut-color').value;
+  if(!key||!label){showToast('Clé et label requis',true);return;}
+  if(customStatuts.find(s=>s.key===key)){showToast('Clé déjà utilisée',true);return;}
+  customStatuts.push({key,label,color});
+  saveStatuts();
+  document.getElementById('new-statut-key').value='';
+  document.getElementById('new-statut-label').value='';
+  renderStatuts();
+  showToast('Statut ajouté ✓');
+}
+
+function removeStatut(i){
+  if(i<4) return;
+  customStatuts.splice(i,1);
+  saveStatuts();
+  renderStatuts();
+  showToast('Statut supprimé ✓');
+}
+
+function updateStatutSelects(){
+  const sels=['md-statut','nd-statut-dossier','f-statut-d'];
+  sels.forEach(id=>{
+    const sel=document.getElementById(id);
+    if(!sel) return;
+    const cur=sel.value;
+    const isFilter=id==='f-statut-d';
+    sel.innerHTML=isFilter?'<option value="">Tous statuts</option>':'';
+    customStatuts.forEach(s=>{
+      const o=document.createElement('option');
+      o.value=s.key;
+      o.textContent=s.label;
+      sel.appendChild(o);
+    });
+    sel.value=cur;
+  });
 }
 
 // ── PDF FICHE PROGRAMMATION ──
