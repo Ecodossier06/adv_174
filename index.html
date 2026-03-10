@@ -505,6 +505,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       <button class="tab" onclick="switchModalTab('gestion',this)">💼 Gestion</button>
       <button class="tab" onclick="switchModalTab('materiel',this)">🔧 Matériel</button>
       <button class="tab" onclick="switchModalTab('pj',this)">📎 PJ</button>
+      <button class="tab" onclick="switchModalTab('photos',this)">📷 Photos</button>
     </div>
 
     <!-- TAB INFOS -->
@@ -521,13 +522,45 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
         <div class="fi-group"><div class="fi-label">Adresse</div><input class="fi-input" id="md-adresse"></div>
       </div>
       <div class="fi-row c3">
-        <div class="fi-group"><div class="fi-label">Type logement</div><input class="fi-input" id="md-type" readonly style="opacity:.6"></div>
-        <div class="fi-group"><div class="fi-label">Surface</div><input class="fi-input" id="md-surface" readonly style="opacity:.6"></div>
-        <div class="fi-group"><div class="fi-label">Chauffage</div><input class="fi-input" id="md-chauffage" readonly style="opacity:.6"></div>
+        <div class="fi-group"><div class="fi-label">Type logement</div>
+          <select class="fi-select" id="md-type">
+            <option value="">—</option>
+            <option value="maison_individuelle">Maison individuelle</option>
+            <option value="appartement">Appartement</option>
+            <option value="maison_jumelee">Maison jumelée</option>
+            <option value="maison_mitoyenne">Maison mitoyenne</option>
+          </select>
+        </div>
+        <div class="fi-group"><div class="fi-label">Surface m²</div><input class="fi-input" id="md-surface" type="number" min="1"></div>
+        <div class="fi-group"><div class="fi-label">Chauffage</div>
+          <select class="fi-select" id="md-chauffage">
+            <option value="">—</option>
+            <option value="gaz">Gaz</option>
+            <option value="fioul">Fioul</option>
+            <option value="electrique">Électrique</option>
+            <option value="bois">Bois/Pellet</option>
+            <option value="pompe_chaleur">PAC</option>
+            <option value="autre">Autre</option>
+          </select>
+        </div>
       </div>
       <div class="fi-row c2">
-        <div class="fi-group"><div class="fi-label">Geste 1</div><input class="fi-input" id="md-g1" readonly style="opacity:.6"></div>
-        <div class="fi-group"><div class="fi-label">Geste 2</div><input class="fi-input" id="md-g2" readonly style="opacity:.6"></div>
+        <div class="fi-group"><div class="fi-label">Geste 1</div>
+          <select class="fi-select" id="md-g1">
+            <option value="">—</option>
+            <option value="comble">Toiture / Combles</option>
+            <option value="plancher_bas">Plancher bas</option>
+            <option value="mur_interieur_25">Mur int. 25%</option>
+          </select>
+        </div>
+        <div class="fi-group"><div class="fi-label">Geste 2</div>
+          <select class="fi-select" id="md-g2">
+            <option value="">—</option>
+            <option value="comble">Toiture / Combles</option>
+            <option value="plancher_bas">Plancher bas</option>
+            <option value="mur_interieur_25">Mur int. 25%</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -548,13 +581,15 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
           <select class="fi-select" id="md-secretaire"><option value="">— Aucune —</option></select>
         </div>
       </div>
-      <div class="fi-row c3">
+      <div class="fi-row c2">
         <div class="fi-group"><div class="fi-label">Date échéance</div><input class="fi-input" id="md-echeance" type="date"></div>
-        <div class="fi-group"><div class="fi-label">Montant prime (€)</div><input class="fi-input" id="md-prime" type="number" step="0.01"></div>
         <div class="fi-group"><div class="fi-label">Reste à charge (€)</div><input class="fi-input" id="md-rac" type="number" step="0.01"></div>
       </div>
       <div class="fi-row">
-        <div class="fi-group"><div class="fi-label">Commentaire</div><textarea class="fi-textarea" id="md-commentaire"></textarea></div>
+        <div class="fi-group"><div class="fi-label">Commentaire interne</div><textarea class="fi-textarea" id="md-commentaire"></textarea></div>
+      </div>
+      <div class="fi-row">
+        <div class="fi-group"><div class="fi-label">Commentaire service technique</div><textarea class="fi-textarea" id="md-commentaire-tech" placeholder="Ce commentaire apparaîtra sur la fiche PDF…"></textarea></div>
       </div>
     </div>
 
@@ -583,6 +618,17 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
         <div style="font-size:13px;color:var(--muted);">Cliquez ou glissez pour ajouter des PJ</div>
       </div>
       <div id="modal-pj-list"></div>
+    </div>
+
+    <!-- TAB PHOTOS -->
+    <div id="mtab-photos" style="display:none">
+      <div class="pj-upload-zone" id="modal-photo-zone">
+        <input type="file" id="modal-photo-input" multiple accept="image/*" onchange="handlePhotoUpload(this.files)">
+        <div style="font-size:24px;margin-bottom:6px;">📷</div>
+        <div style="font-size:13px;color:var(--muted);">Cliquez pour ajouter des photos</div>
+      </div>
+      <div id="modal-photo-list"></div>
+      <div id="modal-photo-pending"></div>
     </div>
 
     <div class="modal-footer">
@@ -849,28 +895,30 @@ async function openDossier(id){
   document.getElementById('md-type').value=d.type_logement||'';
   document.getElementById('md-surface').value=d.surface_m2||'';
   document.getElementById('md-chauffage').value=d.type_chauffage||'';
-  document.getElementById('md-g1').value=GESTE_LABELS[d.geste_1]||d.geste_1||'';
-  document.getElementById('md-g2').value=GESTE_LABELS[d.geste_2]||d.geste_2||'';
+  document.getElementById('md-g1').value=d.geste_1||'';
+  document.getElementById('md-g2').value=d.geste_2||'';
 
   // Gestion
   document.getElementById('md-statut').value=d.statut_dossier||'nouveau';
   document.getElementById('md-secretaire').value=d.secretaire_id||'';
   document.getElementById('md-echeance').value=d.date_echeance||'';
-  document.getElementById('md-prime').value=d.montant_prime||'';
   document.getElementById('md-rac').value=d.reste_a_charge||'';
   document.getElementById('md-commentaire').value=d.commentaire||'';
+  document.getElementById('md-commentaire-tech').value=d.commentaire_technique||'';
 
   // Matériel
   await loadModalMateriel(d.id);
   // PJ
   await loadModalPJ(d.id);
+  // Photos
+  await loadModalPhotos(d.id);
 
   switchModalTab('infos',document.querySelector('.modal .tab'));
   document.getElementById('modal-dossier').classList.add('open');
 }
 
 function switchModalTab(name,el){
-  ['infos','gestion','materiel','pj'].forEach(t=>{
+  ['infos','gestion','materiel','pj','photos'].forEach(t=>{
     const el=document.getElementById('mtab-'+t);
     if(el) el.style.display=t===name?'block':'none';
   });
@@ -881,6 +929,63 @@ function switchModalTab(name,el){
 function closeDossierModal(){
   document.getElementById('modal-dossier').classList.remove('open');
   modalPjFiles=[];
+  pendingPhotos=[];
+}
+
+// ── PHOTOS DOSSIER ──
+let pendingPhotos=[];
+let modalPhotos=[];
+
+async function loadModalPhotos(dossierId){
+  const {data}=await sb.from('dossier_photos').select('*').eq('dossier_id',dossierId).order('ordre');
+  modalPhotos=data||[];
+  renderModalPhotos();
+}
+
+async function renderModalPhotos(){
+  const list=document.getElementById('modal-photo-list');
+  if(modalPhotos.length===0){list.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:16px;">Aucune photo</div>';return;}
+  list.innerHTML=await Promise.all(modalPhotos.map(async (ph,i)=>{
+    const {data:su}=await sb.storage.from('storage').createSignedUrl(ph.path,3600);
+    const url=su?.signedUrl||'';
+    return `<div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--bg3);border-radius:8px;margin-bottom:8px;">
+      <img src="${url}" style="width:80px;height:80px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="window.open('${url}','_blank')">
+      <div style="flex:1;">
+        <input class="fi-input" value="${ph.commentaire||''}" placeholder="Commentaire…" onchange="updatePhotoComment('${ph.id}',this.value)" style="margin-bottom:6px;">
+        <div style="font-size:11px;color:var(--muted);">${new Date(ph.created_at).toLocaleDateString('fr-FR')}</div>
+      </div>
+      <button class="mat-remove" onclick="deletePhoto('${ph.id}','${ph.path}')">✕</button>
+    </div>`;
+  })).then(items=>items.join(''));
+}
+
+function handlePhotoUpload(fileList){
+  const pending=document.getElementById('modal-photo-pending');
+  for(const f of fileList){
+    if(f.size>10*1024*1024){showToast(`${f.name} > 10Mo`,true);continue;}
+    const commentaire=prompt(`Commentaire pour "${f.name}" :`)||'';
+    pendingPhotos.push({file:f,commentaire});
+    const d=document.createElement('div');
+    d.className='pj-item';d.style.background='rgba(63,185,80,.08)';
+    d.innerHTML=`<span style="font-size:16px;margin-right:8px;">📷</span><span style="flex:1;font-size:12.5px;">${f.name} <span style="color:var(--muted)">(en attente — ${commentaire||'sans commentaire'})</span></span>`;
+    pending.appendChild(d);
+  }
+  document.getElementById('modal-photo-input').value='';
+}
+
+async function updatePhotoComment(id,commentaire){
+  await sb.from('dossier_photos').update({commentaire}).eq('id',id);
+  const ph=modalPhotos.find(p=>p.id===id);
+  if(ph) ph.commentaire=commentaire;
+}
+
+async function deletePhoto(id,path){
+  if(!confirm('Supprimer cette photo ?')) return;
+  await sb.storage.from('storage').remove([path]);
+  await sb.from('dossier_photos').delete().eq('id',id);
+  modalPhotos=modalPhotos.filter(p=>p.id!==id);
+  renderModalPhotos();
+  showToast('Photo supprimée ✓');
 }
 
 // ── SAVE DOSSIER ──
@@ -892,12 +997,17 @@ async function saveDossier(){
     tel:document.getElementById('md-tel').value.trim(),
     email:document.getElementById('md-email').value.trim(),
     adresse_client:document.getElementById('md-adresse').value.trim(),
+    type_logement:document.getElementById('md-type').value||null,
+    surface_m2:parseInt(document.getElementById('md-surface').value)||null,
+    type_chauffage:document.getElementById('md-chauffage').value||null,
+    geste_1:document.getElementById('md-g1').value||null,
+    geste_2:document.getElementById('md-g2').value||null,
     statut_dossier:document.getElementById('md-statut').value,
     secretaire_id:document.getElementById('md-secretaire').value||null,
     date_echeance:document.getElementById('md-echeance').value||null,
-    montant_prime:parseFloat(document.getElementById('md-prime').value)||null,
     reste_a_charge:parseFloat(document.getElementById('md-rac').value)||null,
     commentaire:document.getElementById('md-commentaire').value||null,
+    commentaire_technique:document.getElementById('md-commentaire-tech').value||null,
   };
   const {error}=await sb.from('formulaire_174').update(upd).eq('id',id);
   if(error){showToast(error.message,true);return;}
@@ -916,6 +1026,20 @@ async function saveDossier(){
     }
     modalPjFiles=[];
     await loadModalPJ(id);
+  }
+
+  // Upload nouvelles photos
+  if(pendingPhotos.length>0){
+    for(const ph of pendingPhotos){
+      const ext=ph.file.name.split('.').pop();
+      const path=`photos/${id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const {error:upErr}=await sb.storage.from('storage').upload(path,ph.file,{cacheControl:'3600',upsert:false});
+      if(!upErr){
+        await sb.from('dossier_photos').insert({dossier_id:id,path,commentaire:ph.commentaire||null,uploaded_by:currentUser.id});
+      }
+    }
+    pendingPhotos=[];
+    await loadModalPhotos(id);
   }
 
   renderDashboard();
@@ -969,12 +1093,12 @@ async function loadModalPJ(dossierId){
   const list=document.getElementById('modal-pj-list');
   if(!data||data.length===0){list.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:16px;">Aucune pièce jointe</div>';return;}
   list.innerHTML=await Promise.all(data.map(async pj=>{
-    const {data:su}=await sb.storage.from('storage').createSignedUrl(pj.path,300);
+    const {data:su}=await sb.storage.from('storage').createSignedUrl(pj.path,3600);
     const url=su?.signedUrl||'#';
     return `<div class="pj-item">
       <span style="font-size:16px;margin-right:8px;">📄</span>
       <span style="flex:1;font-size:12.5px;">${pj.nom}</span>
-      <a href="${url}" target="_blank" download="${pj.nom}"><button class="btn-dl">⬇ Télécharger</button></a>
+      <button class="btn-dl" onclick="window.open('${url}','_blank')">⬇ Télécharger</button>
     </div>`;
   })).then(items=>items.join(''));
 }
@@ -1058,6 +1182,7 @@ function renderApporteurs(){
         ${a.user_id?'<span class="ap-badge actif" style="margin-left:4px;">🔗 Portail</span>':''}
       </div>
       <div style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-sm" onclick="editApporteurNom('${a.id}')">✏️</button>
         <button class="btn btn-ghost btn-sm" onclick="toggleApporteur('${a.id}',${a.actif})">${a.actif?'Désactiver':'Activer'}</button>
       </div>
     </div>`).join('');
@@ -1088,6 +1213,18 @@ async function toggleApporteur(id,actif){
   renderApporteurs(); showToast(actif?'Désactivé':'Activé ✓');
 }
 
+async function editApporteurNom(id){
+  const ap=allApporteurs.find(a=>a.id===id);
+  if(!ap) return;
+  const newNom=prompt('Nouveau nom :',ap.nom);
+  if(!newNom||newNom===ap.nom) return;
+  const {error}=await sb.from('apporteurs').update({nom:newNom}).eq('id',id);
+  if(error){showToast(error.message,true);return;}
+  ap.nom=newNom;
+  renderApporteurs();populateSelects();
+  showToast('Nom modifié ✓');
+}
+
 // ── MATERIEL ──
 function renderMateriel(){
   const list=document.getElementById('mat-list');
@@ -1102,6 +1239,7 @@ function renderMateriel(){
           ${m.infos_tech?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">${m.infos_tech}</div>`:''}
         </div>
       </div>
+      <button class="btn btn-ghost btn-sm" onclick="editMateriel('${m.id}')">✏️</button>
       <button class="btn btn-ghost btn-sm" onclick="toggleMateriel('${m.id}',${m.actif})">${m.actif?'Désactiver':'Activer'}</button>
     </div>`).join('');
 }
@@ -1132,6 +1270,20 @@ async function toggleMateriel(id,actif){
   const idx=allMateriel.findIndex(m=>m.id===id);
   if(idx>-1) allMateriel[idx].actif=!actif;
   renderMateriel(); showToast(actif?'Désactivé':'Activé ✓');
+}
+
+async function editMateriel(id){
+  const mat=allMateriel.find(m=>m.id===id);
+  if(!mat) return;
+  const newNom=prompt('Nom :',mat.nom);
+  if(!newNom) return;
+  const newDesc=prompt('Description :',mat.description||'');
+  const newTech=prompt('Infos techniques :',mat.infos_tech||'');
+  const {error}=await sb.from('materiel').update({nom:newNom,description:newDesc||null,infos_tech:newTech||null}).eq('id',id);
+  if(error){showToast(error.message,true);return;}
+  Object.assign(mat,{nom:newNom,description:newDesc||null,infos_tech:newTech||null});
+  renderMateriel();populateSelects();
+  showToast('Produit modifié ✓');
 }
 
 // ── SECRETAIRES ──
@@ -1302,7 +1454,6 @@ async function generatePDF(){
   if(modalMateriels.length===0){
     doc.setFontSize(9);doc.setFont('helvetica','normal');doc.text('Aucun matériel renseigné',14,y);y+=6;
   } else {
-    // Header table
     doc.setFillColor(33,38,45);doc.rect(14,y-4,182,7,'F');
     doc.setTextColor(125,133,144);doc.setFontSize(8);
     doc.text('Référence',16,y);doc.text('Désignation',50,y);doc.text('Qté',180,y);
@@ -1325,7 +1476,6 @@ async function generatePDF(){
   const gRows=[
     ['Statut',{nouveau:'Nouveau',en_cours:'En cours',valide:'Validé',refuse:'Refusé'}[d.statut_dossier]||'—'],
     ['Échéance',d.date_echeance?new Date(d.date_echeance).toLocaleDateString('fr-FR'):'—'],
-    ['Prime CEE',d.montant_prime?`${d.montant_prime} €`:'—'],
     ['Reste à charge',d.reste_a_charge?`${d.reste_a_charge} €`:'—'],
   ];
   gRows.forEach(([lbl,val])=>{
@@ -1334,21 +1484,53 @@ async function generatePDF(){
     y+=6;
   });
 
-  // Commentaire
-  if(d.commentaire){
+  // Commentaire service technique
+  if(d.commentaire_technique){
     y+=4;
-    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('COMMENTAIRES',14,y);
+    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.text('SERVICE TECHNIQUE',14,y);
     doc.line(14,y+2,80,y+2);y+=8;
     doc.setFontSize(9);doc.setFont('helvetica','normal');
-    const lines=doc.splitTextToSize(d.commentaire,182);
+    const lines=doc.splitTextToSize(d.commentaire_technique,182);
     doc.text(lines,14,y);y+=lines.length*5;
   }
 
+  // Photos avec commentaires
+  if(modalPhotos.length>0){
+    for(const ph of modalPhotos){
+      // Nouvelle page si pas assez de place
+      if(y>200){doc.addPage();y=20;}
+      y+=4;
+      const {data:su}=await sb.storage.from('storage').createSignedUrl(ph.path,60);
+      if(su?.signedUrl){
+        try{
+          const resp=await fetch(su.signedUrl);
+          const blob=await resp.blob();
+          const dataUrl=await new Promise(r=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.readAsDataURL(blob);});
+          const ext=ph.path.split('.').pop().toLowerCase();
+          const fmt=ext==='png'?'PNG':'JPEG';
+          doc.addImage(dataUrl,fmt,14,y,60,45);
+          if(ph.commentaire){
+            doc.setFontSize(8);doc.setFont('helvetica','normal');
+            const cLines=doc.splitTextToSize(ph.commentaire,110);
+            doc.text(cLines,80,y+6);
+          }
+          y+=50;
+        }catch(e){
+          doc.setFontSize(8);doc.text(`[Photo: ${ph.commentaire||'sans commentaire'}]`,14,y);y+=6;
+        }
+      }
+    }
+  }
+
   // Footer
-  doc.setFillColor(26,92,53);doc.rect(0,285,210,12,'F');
-  doc.setTextColor(255,255,255);doc.setFontSize(8);
-  doc.text('BAR-TH-174 · Certificats d\'Économies d\'Énergie',14,293);
-  doc.text(`Apporteur : ${d.code_apporteur||'—'}`,150,293);
+  const pageCount=doc.internal.getNumberOfPages();
+  for(let p=1;p<=pageCount;p++){
+    doc.setPage(p);
+    doc.setFillColor(26,92,53);doc.rect(0,285,210,12,'F');
+    doc.setTextColor(255,255,255);doc.setFontSize(8);
+    doc.text('BAR-TH-174 · Certificats d\'Économies d\'Énergie',14,293);
+    doc.text(`Apporteur : ${d.code_apporteur||'—'}`,150,293);
+  }
 
   doc.save(`fiche_${d.nom}_${d.prenom}_${new Date().toISOString().slice(0,10)}.pdf`);
 }
