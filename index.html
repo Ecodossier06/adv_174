@@ -212,7 +212,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
       <div class="login-logo-icon">🏠</div>
       <h1>BAR-TH-174</h1>
       <p>Espace administration</p>
-      <p>v.1</p>
+      <p>v.2</p>
     </div>
     <form onsubmit="event.preventDefault();doLogin();" autocomplete="on">
       <div class="lf"><label>Email</label><input type="email" id="l-email" placeholder="admin@domaine.fr" autocomplete="email"></div>
@@ -470,7 +470,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
         </form>
         <div class="fi-err" id="e-sec" style="margin-top:8px;"></div>
         <div style="margin-top:12px;padding:10px 14px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.2);border-radius:8px;font-size:12px;color:var(--blue);">
-       
+          ℹ️ La secrétaire recevra un email de confirmation. Son rôle sera automatiquement assigné.
         </div>
       </div>
       <div class="section-card">
@@ -659,8 +659,18 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
 const SB_URL  = "https://upultfflbxrghptavwvf.supabase.co";
 const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwdWx0ZmZsYnhyZ2hwdGF2d3ZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjU1MDYsImV4cCI6MjA4ODY0MTUwNn0.Uq2AnyqYJeCztqzDjUWNYk0LvhS3gGIXn3TlxQo17ug";
 const sb = supabase.createClient(SB_URL, SB_ANON, {
-  auth: { lock: false }
+  auth: { lock: false, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false }
 });
+
+// Auto-recovery : si une requête échoue en 403, tenter un refresh
+async function sbQuery(fn){
+  let result = await fn();
+  if(result.error && (result.error.code==='PGRST301' || result.error.message?.includes('JWT'))){
+    const {error:refreshErr} = await sb.auth.refreshSession();
+    if(!refreshErr) result = await fn();
+  }
+  return result;
+}
 
 let currentRole=null, currentUser=null;
 let allDossiers=[], allApporteurs=[], allMateriel=[], allSecretaires=[];
@@ -686,18 +696,27 @@ async function doLogout(){await sb.auth.signOut();location.reload();}
 let appInitialized = false;
 
 sb.auth.onAuthStateChange(async(event,session)=>{
-  // Ignorer les events de refresh token si déjà initialisé
-  if(event==='TOKEN_REFRESHED') return;
+  // Ne réagir qu'aux events importants
+  if(event==='TOKEN_REFRESHED' || event==='USER_UPDATED') return;
   
-  if(!session){
+  if(event==='SIGNED_OUT'){
     appInitialized = false;
     document.getElementById('login-screen').style.display='flex';
     document.getElementById('app').style.display='none';
     return;
   }
+  
   if(session?.user && !appInitialized) {
     appInitialized = true;
-    await initApp(session.user);
+    try{
+      await initApp(session.user);
+    }catch(e){
+      console.error('initApp error:',e);
+      // Ne pas déconnecter en cas d'erreur réseau temporaire
+    }
+  } else if(!session && !appInitialized){
+    document.getElementById('login-screen').style.display='flex';
+    document.getElementById('app').style.display='none';
   }
 });
 
@@ -724,28 +743,48 @@ async function initApp(user){
     document.getElementById('nav-gestion').style.display='block';
     const btnExp=document.getElementById('btn-export'); if(btnExp) btnExp.style.display='inline-flex';
   }
-  await Promise.all([loadDossiers(),loadApporteurs(),loadMateriel(),loadSecretaires()]);
+  await Promise.all([loadDossiers(),loadApporteurs(),loadMateriel(),loadSecretaires(),loadStatuts()]);
   renderDashboard();
   populateSelects();
 }
 
 // ── LOAD DATA ──
 async function loadDossiers(){
-  const {data}=await sb.from('formulaire_174').select('*').order('created_at',{ascending:false});
+  const {data}=await sbQuery(()=>sb.from('formulaire_174').select('*').order('created_at',{ascending:false}));
   allDossiers=data||[];
 }
 async function loadApporteurs(){
-  const {data}=await sb.from('apporteurs').select('*').order('nom');
+  const {data}=await sbQuery(()=>sb.from('apporteurs').select('*').order('nom'));
   allApporteurs=data||[];
 }
 async function loadMateriel(){
-  const {data}=await sb.from('materiel').select('*').order('nom');
+  const {data}=await sbQuery(()=>sb.from('materiel').select('*').order('nom'));
   allMateriel=data||[];
 }
 async function loadSecretaires(){
-  const {data}=await sb.from('user_roles').select('user_id,role,name').in('role',['secretaire','responsable']);
+  const {data}=await sbQuery(()=>sb.from('user_roles').select('user_id,role,name').in('role',['secretaire','responsable']));
   allSecretaires=data||[];
 }
+async function loadStatuts(){
+  const {data}=await sbQuery(()=>sb.from('config_statuts').select('*').order('ordre'));
+  customStatuts=data||[];
+}
+
+// Heartbeat : vérifier la session toutes les 2 minutes
+setInterval(async()=>{
+  if(!appInitialized) return;
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){
+    // Tenter un refresh silencieux
+    const {error}=await sb.auth.refreshSession();
+    if(error){
+      showToast('Session expirée — reconnectez-vous',true);
+      appInitialized=false;
+      document.getElementById('login-screen').style.display='flex';
+      document.getElementById('app').style.display='none';
+    }
+  }
+},120000);
 
 function populateSelects(){
   // Apporteurs dans nouveau dossier
@@ -787,6 +826,10 @@ function populateSelects(){
 // ── DASHBOARD ──
 function renderDashboard(){
   document.getElementById('s-total').textContent=allDossiers.length;
+  // Dynamique selon statuts
+  const nouveau=customStatuts.find(s=>s.key==='nouveau');
+  const en_cours=customStatuts.find(s=>s.key==='en_cours');
+  const valide=customStatuts.find(s=>s.key==='valide');
   document.getElementById('s-nouveau').textContent=allDossiers.filter(d=>d.statut_dossier==='nouveau').length;
   document.getElementById('s-en_cours').textContent=allDossiers.filter(d=>d.statut_dossier==='en_cours').length;
   document.getElementById('s-valide').textContent=allDossiers.filter(d=>d.statut_dossier==='valide').length;
@@ -807,11 +850,12 @@ function renderChartEvol(){
 }
 
 function renderChartStatut(){
-  const c={nouveau:0,en_cours:0,valide:0,refuse:0};
-  allDossiers.forEach(d=>{if(c[d.statut_dossier]!==undefined)c[d.statut_dossier]++;});
+  const labels=customStatuts.map(s=>s.label);
+  const colors=customStatuts.map(s=>s.color+'cc');
+  const data=customStatuts.map(s=>allDossiers.filter(d=>d.statut_dossier===s.key).length);
   const ctx=document.getElementById('chart-statut').getContext('2d');
   if(chartStatut) chartStatut.destroy();
-  chartStatut=new Chart(ctx,{type:'doughnut',data:{labels:['Nouveau','En cours','Validé','Refusé'],datasets:[{data:Object.values(c),backgroundColor:['rgba(88,166,255,.8)','rgba(210,153,34,.8)','rgba(63,185,80,.8)','rgba(248,81,73,.8)'],borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7d8590',font:{size:11},padding:12}}}}});
+  chartStatut=new Chart(ctx,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:0,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7d8590',font:{size:11},padding:12}}}}});
 }
 
 // ── PAGES ──
@@ -838,6 +882,12 @@ function echeanceClass(date){
   return '';
 }
 
+function statutBadge(key){
+  const s=customStatuts.find(x=>x.key===key);
+  if(s) return `<span class="badge" style="background:${s.color}22;color:${s.color};">${s.label}</span>`;
+  return `<span class="badge">${key||'—'}</span>`;
+}
+
 function dossierRow(d, apMap){
   const date=new Date(d.created_at).toLocaleDateString('fr-FR');
   const ech=d.date_echeance?new Date(d.date_echeance).toLocaleDateString('fr-FR'):'—';
@@ -852,7 +902,7 @@ function dossierRow(d, apMap){
     <td><div class="mono">${ap}</div></td>
     <td><div style="font-size:12px;">${assignedName}</div></td>
     <td><span class="${echClass}">${ech}</span></td>
-    <td><span class="badge ${d.statut_dossier}">${{nouveau:'Nouveau',en_cours:'En cours',valide:'Validé',refuse:'Refusé'}[d.statut_dossier]||d.statut_dossier}</span></td>
+    <td>${statutBadge(d.statut_dossier)}</td>
     <td class="mono">${date}</td>
   </tr>`;
 }
@@ -1393,65 +1443,68 @@ async function createSecretaire(){
   showToast('Secrétaire créée ✓');
 }
 
-// ── STATUTS DOSSIER ──
-let customStatuts = JSON.parse(localStorage.getItem('bar174-statuts') || 'null') || [
-  {key:'nouveau', label:'Nouveau', color:'#58a6ff'},
-  {key:'en_cours', label:'En cours', color:'#d29922'},
-  {key:'valide', label:'Validé', color:'#3fb950'},
-  {key:'refuse', label:'Refusé', color:'#f85149'}
-];
-
-function saveStatuts(){ try{localStorage.setItem('bar174-statuts',JSON.stringify(customStatuts));}catch(e){} }
+// ── STATUTS DOSSIER (Supabase) ──
+let customStatuts = [];
 
 function renderStatuts(){
   const list=document.getElementById('statuts-list');
   if(!list) return;
-  list.innerHTML=customStatuts.map((s,i)=>`
+  list.innerHTML=customStatuts.map(s=>`
     <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg3);border-radius:9px;border:1px solid var(--border);margin-bottom:8px;">
-      <input type="color" value="${s.color}" style="width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0;" onchange="editStatutColor(${i},this.value)">
+      <input type="color" value="${s.color}" style="width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0;" onchange="editStatutColor('${s.id}',this.value)">
       <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);min-width:120px;">${s.key}</span>
       <span style="font-size:13px;font-weight:600;flex:1;">${s.label}</span>
       <span class="badge" style="background:${s.color}22;color:${s.color};">${s.label}</span>
-      <button class="btn btn-ghost btn-sm" onclick="editStatut(${i})">✏️</button>
-      ${i>=4?`<button class="btn btn-danger btn-sm" onclick="removeStatut(${i})">✕</button>`:''}
+      <button class="btn btn-ghost btn-sm" onclick="editStatut('${s.id}')">✏️</button>
+      <button class="btn btn-danger btn-sm" onclick="removeStatut('${s.id}')">✕</button>
     </div>`).join('');
   updateStatutSelects();
 }
 
-function editStatut(i){
-  const s=customStatuts[i];
+async function editStatut(id){
+  const s=customStatuts.find(x=>x.id==id);
+  if(!s) return;
   const newKey=prompt('Clé :',s.key);
   if(!newKey) return;
   const newLabel=prompt('Label :',s.label);
   if(!newLabel) return;
-  customStatuts[i]={...s, key:newKey.trim().toLowerCase().replace(/\s+/g,'_'), label:newLabel.trim()};
-  saveStatuts();renderStatuts();
+  const upd={key:newKey.trim().toLowerCase().replace(/\s+/g,'_'),label:newLabel.trim()};
+  const {error}=await sb.from('config_statuts').update(upd).eq('id',id);
+  if(error){showToast(error.message,true);return;}
+  Object.assign(s,upd);
+  renderStatuts();
   showToast('Statut modifié ✓');
 }
 
-function editStatutColor(i,color){
-  customStatuts[i].color=color;
-  saveStatuts();renderStatuts();
+async function editStatutColor(id,color){
+  const {error}=await sb.from('config_statuts').update({color}).eq('id',id);
+  if(error){showToast(error.message,true);return;}
+  const s=customStatuts.find(x=>x.id==id);
+  if(s) s.color=color;
+  renderStatuts();
 }
 
-function addStatut(){
+async function addStatut(){
   const key=document.getElementById('new-statut-key').value.trim().toLowerCase().replace(/\s+/g,'_');
   const label=document.getElementById('new-statut-label').value.trim();
   const color=document.getElementById('new-statut-color').value;
   if(!key||!label){showToast('Clé et label requis',true);return;}
   if(customStatuts.find(s=>s.key===key)){showToast('Clé déjà utilisée',true);return;}
-  customStatuts.push({key,label,color});
-  saveStatuts();
+  const ordre=customStatuts.length+1;
+  const {data,error}=await sb.from('config_statuts').insert({key,label,color,ordre}).select().single();
+  if(error){showToast(error.message,true);return;}
+  customStatuts.push(data);
   document.getElementById('new-statut-key').value='';
   document.getElementById('new-statut-label').value='';
   renderStatuts();
   showToast('Statut ajouté ✓');
 }
 
-function removeStatut(i){
-  if(i<4) return;
-  customStatuts.splice(i,1);
-  saveStatuts();
+async function removeStatut(id){
+  if(!confirm('Supprimer ce statut ?')) return;
+  const {error}=await sb.from('config_statuts').delete().eq('id',id);
+  if(error){showToast(error.message,true);return;}
+  customStatuts=customStatuts.filter(s=>s.id!=id);
   renderStatuts();
   showToast('Statut supprimé ✓');
 }
