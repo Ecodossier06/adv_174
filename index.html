@@ -72,7 +72,7 @@ body{font-family:'Epilogue',sans-serif;background:var(--bg);color:var(--text);mi
 .page-sub{font-size:13px;color:var(--muted);margin-top:3px;}
 
 /* STAT CARDS */
-.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:24px;}
 @media(max-width:900px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:18px;position:relative;overflow:hidden;}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent,var(--green));}
@@ -258,12 +258,7 @@ tr:hover td{background:rgba(255,255,255,.02);cursor:pointer;}
     <!-- DASHBOARD -->
     <div class="page active" id="page-dashboard">
       <div class="page-header"><div><div class="page-title">Tableau de bord</div><div class="page-sub" id="dash-date">—</div></div></div>
-      <div class="stat-grid">
-        <div class="stat-card"><div class="stat-icon">📁</div><div class="stat-label">Total</div><div class="stat-val" id="s-total">—</div></div>
-        <div class="stat-card gold"><div class="stat-icon">🆕</div><div class="stat-label">Nouveaux</div><div class="stat-val" id="s-nouveau">—</div></div>
-        <div class="stat-card blue"><div class="stat-icon">🔄</div><div class="stat-label">En cours</div><div class="stat-val" id="s-en_cours">—</div></div>
-        <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-label">Validés</div><div class="stat-val" id="s-valide">—</div></div>
-      </div>
+    <div class="stat-grid" id="stat-grid"></div>
       <div class="chart-grid">
         <div class="chart-card"><div class="chart-title">Évolution — 30 derniers jours</div><div class="chart-wrap" style="height:200px"><canvas id="chart-evol"></canvas></div></div>
         <div class="chart-card"><div class="chart-title">Par statut</div><div class="chart-wrap" style="height:200px"><canvas id="chart-statut"></canvas></div></div>
@@ -825,14 +820,13 @@ function populateSelects(){
 
 // ── DASHBOARD ──
 function renderDashboard(){
-  document.getElementById('s-total').textContent=allDossiers.length;
-  // Dynamique selon statuts
-  const nouveau=customStatuts.find(s=>s.key==='nouveau');
-  const en_cours=customStatuts.find(s=>s.key==='en_cours');
-  const valide=customStatuts.find(s=>s.key==='valide');
-  document.getElementById('s-nouveau').textContent=allDossiers.filter(d=>d.statut_dossier==='nouveau').length;
-  document.getElementById('s-en_cours').textContent=allDossiers.filter(d=>d.statut_dossier==='en_cours').length;
-  document.getElementById('s-valide').textContent=allDossiers.filter(d=>d.statut_dossier==='valide').length;
+  const grid=document.getElementById('stat-grid');
+  let html=`<div class="stat-card"><div class="stat-icon">📁</div><div class="stat-label">Total</div><div class="stat-val">${allDossiers.length}</div></div>`;
+  customStatuts.forEach(s=>{
+    const count=allDossiers.filter(d=>d.statut_dossier===s.key).length;
+    html+=`<div class="stat-card" style="--accent:${s.color}"><div class="stat-icon"><span class="badge" style="background:${s.color}22;color:${s.color};font-size:14px;">●</span></div><div class="stat-label">${s.label}</div><div class="stat-val">${count}</div></div>`;
+  });
+  grid.innerHTML=html;
   renderChartEvol(); renderChartStatut();
 }
 
